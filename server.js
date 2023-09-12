@@ -4,9 +4,11 @@ const app = express();
 const port = process.env.PORT || 3000;
 
 // Define a route to fetch the rank from the Steam API
-app.get('/getRank', async (req, res) => {
+app.get('/getRank/:playerName', async (req, res) => {
   try {
-    // Make a GET request to the Steam API
+    const playerName = req.params.playerName;
+
+    // Make a GET request to the Steam API using playerName
     const steamResponse = await axios.get('https://api.steampowered.com/ICSGOServers_730/GetLeaderboardEntries/v1', {
       params: {
         format: 'json',
@@ -28,25 +30,24 @@ app.get('/getRank', async (req, res) => {
       return res.status(500).send('Invalid response from the Steam API');
     }
 
-    // Extract the rank for the player "f0rest"
+    // Extract the rank for the provided player name
     const leaderboardEntries = responseData.result.entries;
 
-    // Find the player with the name "f0rest"
-
+    // Find the player with the provided name
     let rank = null;
     for (const entry of leaderboardEntries) {
-      if (entry.name === 'f0rest') {
+      if (entry.name === playerName) {
         rank = entry.rank;
         break;
       }
     }
 
     if (rank === null) {
-      return res.status(404).send('Player "f0rest" not found in the leaderboard');
+      return res.status(404).send(`Player "${playerName}" not found in the leaderboard`);
     }
 
     // Send the rank as plain text with the desired format
-    res.send(`rank ${rank}`);
+    res.send(`rank: ${rank}`);
   } catch (error) {
     console.error('Error fetching rank:', error);
     res.status(500).send('An error occurred while fetching data from the Steam API');
