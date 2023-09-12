@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Streamer Rank</title>
+</head>
+<body>
+  <h1>Streamer Rank:</h1>
+  <p id="rank">Loading...</p>
+
+  <script>
+    // Fetch and display the rank using client-side JavaScript
+    fetch('/getRank')
+      .then(response => response.json())
+      .then(data => {
+        const rankElement = document.getElementById('rank');
+        rankElement.textContent = `Rank: ${data.rank}`;
+      })
+      .catch(error => {
+        console.error('Error fetching rank:', error);
+      });
+  </script>
+</body>
+</html>
