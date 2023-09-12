@@ -47,7 +47,7 @@ app.get('/getRank/:playerName', async (req, res) => {
     }
 
     // Send the rank as plain text with the desired format
-    res.send(`rank: ${rank}`);
+    res.send(`${rank}`);
   } catch (error) {
     console.error('Error fetching rank:', error);
     res.status(500).send('An error occurred while fetching data from the Steam API');
