@@ -32,6 +32,7 @@ app.get('/getRank', async (req, res) => {
     const leaderboardEntries = responseData.result.entries;
 
     // Find the player with the name "f0rest"
+
     let rank = null;
     for (const entry of leaderboardEntries) {
       if (entry.name === 'f0rest') {
@@ -44,8 +45,8 @@ app.get('/getRank', async (req, res) => {
       return res.status(404).send('Player "f0rest" not found in the leaderboard');
     }
 
-    // Send the rank as a JSON response
-    res.json({ rank });
+    // Send the rank as plain text with the desired format
+    res.send(`rank: ${rank}`);
   } catch (error) {
     console.error('Error fetching rank:', error);
     res.status(500).send('An error occurred while fetching data from the Steam API');
