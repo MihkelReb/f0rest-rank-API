@@ -13,7 +13,7 @@
       .then(response => response.json())
       .then(data => {
         const rankElement = document.getElementById('rank');
-        rankElement.textContent = `Rank: ${data.rank}`;
+        rankElement.textContent = `Rank ${data.rank}`;
       })
       .catch(error => {
         console.error('Error fetching rank:', error);
