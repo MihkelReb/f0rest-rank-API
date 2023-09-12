@@ -34,8 +34,8 @@ app.get('/getRank', async (req, res) => {
 });
 
 // Define a route for testing
-app.get('/test', (req, res) => {
-  res.send('API is working!');
+app.get('/getRank', (req, res) => {
+  res.sendFile(__dirname + '/public/index.html');
 });
 
 app.listen(port, () => {
