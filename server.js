@@ -14,16 +14,35 @@ app.get('/getRank', async (req, res) => {
       },
     });
 
-    // Extract the rank for the player "f0rest"
-    const leaderboardEntries = steamResponse.data.leaderboard_entries;
-    const player = leaderboardEntries.find(entry => entry.name === 'f0rest');
-
-    if (!player) {
-      return res.status(404).send('Player "f0rest" not found in the leaderboard');
+    // Check if the response status code indicates success
+    if (steamResponse.status !== 200) {
+      return res.status(500).send('Failed to fetch data from the Steam API');
     }
 
-    // Extract the rank value
-    const rank = player.rank;
+    // Parse the response data as JSON
+    const responseData = steamResponse.data;
+
+    // Ensure the response contains the expected structure
+    if (!responseData || !responseData.result || !responseData.result.entries) {
+      console.error('Invalid response from the Steam API:', responseData);
+      return res.status(500).send('Invalid response from the Steam API');
+    }
+
+    // Extract the rank for the player "f0rest"
+    const leaderboardEntries = responseData.result.entries;
+
+    // Find the player with the name "f0rest"
+    let rank = null;
+    for (const entry of leaderboardEntries) {
+      if (entry.name === 'f0rest') {
+        rank = entry.rank;
+        break;
+      }
+    }
+
+    if (rank === null) {
+      return res.status(404).send('Player "f0rest" not found in the leaderboard');
+    }
 
     // Send the rank as a JSON response
     res.json({ rank });
@@ -31,11 +50,6 @@ app.get('/getRank', async (req, res) => {
     console.error('Error fetching rank:', error);
     res.status(500).send('An error occurred while fetching data from the Steam API');
   }
-});
-
-// Define a route for testing
-app.get('/getRank', (req, res) => {
-  res.sendFile(__dirname + '/public/index.html');
 });
 
 app.listen(port, () => {
