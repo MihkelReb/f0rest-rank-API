@@ -17,8 +17,6 @@ const app = express();
 // Setting the server port, defaulting to 3000 if the PORT environment variable isn't set
 const port = process.env.PORT || 3000;
 
-
-// Set up the database
 // Creating a new SQLite database connection to the 'database.db' file
 const db = new sqlite3.Database('./database.db');
 
@@ -29,7 +27,6 @@ let tokenStore = {
   tokenExpiry: null    // Timestamp for when the access token expires
 };
 
-
 // Serializing database operations ensures they run in sequence 
 db.serialize(() => {
   // Execute the SQL command to create a 'tokens' table in the database
@@ -38,8 +35,6 @@ db.serialize(() => {
   db.run("CREATE TABLE IF NOT EXISTS tokens (id INTEGER PRIMARY KEY, accessToken TEXT, refreshToken TEXT, tokenExpiry INTEGER)");
 });
 
-
-// Access environment variables for authentication
 // Retrieve the CLIENT_ID from the environment variables. If it doesn't exist, use 'Fallback_ID' as a default value.
 const CLIENT_ID = process.env.CLIENT_ID || 'Fallback_ID';
 
@@ -288,6 +283,7 @@ async function isStreamerLive(streamerName) {
 }
 
 
+// Track streamers we're currently checking the status for
 /**
  * An object that tracks which streamers are currently being checked.
  * The keys represent the streamer's name, and the values (true or false) indicate whether 
@@ -300,37 +296,59 @@ let currentlyChecking = {
 
 
 // Function to periodically check if certain streamers are live
+/**
+ * Asynchronously checks the live status of a list of streamers.
+ * If a streamer is live, it fetches their rank. If they're not live, 
+ * it marks them as not currently being checked. 
+ * The function also schedules itself to run periodically.
+ */
 async function checkStreamers() {
+  // Define a list of streamers to check.
   const streamers = ['olofmeister', 'f0rest'];
 
+  // Loop through each streamer in the list.
   for (const streamer of streamers) {
+    // If a streamer isn't flagged for checking, skip to the next streamer.
     if (!currentlyChecking[streamer]) continue;
 
+    // Check if the current streamer is live.
     const live = await isStreamerLive(streamer);
+    
     if (live) {
+      // If the streamer is live, fetch their rank.
       await axios.get(`https://f0rest-rank-api.glitch.me/getRank/${streamer}`);
     } else {
+      // If they're not live, set their status to not being checked.
       currentlyChecking[streamer] = false;
     }
   }
 
+  // Determine if there are any streamers left to check.
   const shouldContinueChecking = Object.values(currentlyChecking).some(value => value);
+  
+  // If there are streamers left to check, schedule this function to run again after a delay.
   if (shouldContinueChecking) {
-    setTimeout(checkStreamers, 4 * 60 * 1000);
+    setTimeout(checkStreamers, 4 * 60 * 1000); // Set to check every 4 minutes.
   }
 }
+
 
 // Kick off the streamer checking process when server starts
 checkStreamers();  // Start the check when the server starts
 
+
 // API endpoint to get a player's rank
+// Express route handler for fetching the rank of a specified player.
 app.get('/getRank/:playerName', async (req, res) => {
   try {
-      const playerName = req.params.playerName;
-      currentlyChecking[playerName] = true;
-      checkStreamers();
+    // Extract the player's name from the request parameters.
+    const playerName = req.params.playerName;
+    
+    // Mark the player as "currently checking" and then check their streaming status.
+    currentlyChecking[playerName] = true;
+    checkStreamers();
 
-    // Make a GET request to the Steam API using playerName
+    // Make a GET request to the Steam API using the player's name.
     const steamResponse = await axios.get('https://api.steampowered.com/ICSGOServers_730/GetLeaderboardEntries/v1', {
       params: {
         format: 'json',
@@ -338,24 +356,24 @@ app.get('/getRank/:playerName', async (req, res) => {
       },
     });
 
-    // Check if the response status code indicates success
+    // Check if the response status code indicates a successful request.
     if (steamResponse.status !== 200) {
       return res.status(500).send('Failed to fetch data from the Steam API');
     }
 
-    // Parse the response data as JSON
+    // Parse the returned data from the Steam API.
     const responseData = steamResponse.data;
 
-    // Ensure the response contains the expected structure
+    // Ensure the response contains the expected structure (a result with entries).
     if (!responseData || !responseData.result || !responseData.result.entries) {
       console.error('Invalid response from the Steam API:', responseData);
       return res.status(500).send('Invalid response from the Steam API');
     }
 
-    // Extract the rank for the provided player name
+    // Extract the leaderboard entries from the response.
     const leaderboardEntries = responseData.result.entries;
 
-    // Find the player with the provided name
+    // Attempt to find the provided player's name within the leaderboard entries.
     let rank = null;
     for (const entry of leaderboardEntries) {
       if (entry.name === playerName) {
@@ -364,17 +382,20 @@ app.get('/getRank/:playerName', async (req, res) => {
       }
     }
 
+    // If the player's rank wasn't found, respond with an appropriate message.
     if (rank === null) {
       return res.status(404).send(`Player "${playerName}" not found in the leaderboard`);
     }
 
-    // Send the rank as plain text with the desired format
+    // If the rank was found, send the rank as the response.
     res.send(`${rank}`);
   } catch (error) {
+    // Log any errors and respond with an appropriate error message.
     console.error('Error fetching rank:', error);
     res.status(500).send('An error occurred while fetching data from the Steam API');
-}
+  }
 });
+
 
 // Start the server
 app.listen(port, () => {
