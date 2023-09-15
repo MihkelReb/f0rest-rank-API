@@ -6,7 +6,11 @@ const port = process.env.PORT || 3000;
 const sqlite3 = require('sqlite3').verbose();
 const db = new sqlite3.Database('./database.db');
 
-// Define tokenStore at the top
+
+// Use these constants consistently
+const CLIENT_ID = process.env.CLIENT_ID || 'Fallback_ID';
+const CLIENT_SECRET = process.env.CLIENT_SECRET || 'Fallback_Secret';
+
 let tokenStore = {
   accessToken: null,
   refreshToken: null,
@@ -68,19 +72,19 @@ async function getTokensFromDB() {
 
 async function refreshAccessToken() {
   try {
-      const response = await axios.post('https://id.twitch.tv/oauth2/token', null, {
-          params: {
-              client_id: process.env.CLIENT_ID,
-              client_secret: process.env.CLIENT_SECRET,
-              grant_type: 'refresh_token',
-              refresh_token: tokenStore.refreshToken
-          }
-      });
+    const response = await axios.post('https://id.twitch.tv/oauth2/token', null, {
+        params: {
+            client_id: CLIENT_ID,
+            client_secret: CLIENT_SECRET,
+            grant_type: 'refresh_token',
+            refresh_token: tokenStore.refreshToken
+        }
+    });
 
-      const { access_token, refresh_token, expires_in } = response.data;
-      const expiry = Date.now() + (expires_in * 1000);
-      tokenStore = { accessToken: access_token, refreshToken: refresh_token, tokenExpiry: expiry };
-      await saveTokensToDB(access_token, refresh_token, expiry);
+    const { access_token, refresh_token, expires_in } = response.data;
+    const expiry = Date.now() + (expires_in * 1000);
+    tokenStore = { accessToken: access_token, refreshToken: refresh_token, tokenExpiry: expiry };
+    await saveTokensToDB(access_token, refresh_token, expiry);
   } catch (error) {
       console.error('Error refreshing token:', error);
   }
@@ -88,6 +92,10 @@ async function refreshAccessToken() {
 
 
 async function getAccessToken() {
+  // If we have a cached token and it's not expired, use it
+  if (tokenStore.accessToken && Date.now() <= tokenStore.tokenExpiry) {
+      return tokenStore.accessToken;
+  }
   try {
     const tokenData = await getTokensFromDB();
 
@@ -120,38 +128,39 @@ app.get('/auth/callback', async (req, res) => {
   const authorizationCode = req.query.code;
 
   if (!authorizationCode) {
-      return res.status(400).send('No authorization code provided');
+    return res.status(400).send('No authorization code provided');
   }
 
   try {
     const response = await axios.post('https://id.twitch.tv/oauth2/token', null, {
-        params: {
-            client_id: process.env.CLIENT_ID,
-            client_secret: process.env.CLIENT_SECRET,
-            code: authorizationCode,
-            grant_type: 'authorization_code',
-            redirect_uri: 'https://f0rest-rank-api.glitch.me/auth/callback'  // This should match exactly what you've registered with Twitch.
-        }
+      params: {
+        client_id: CLIENT_ID,
+        client_secret: CLIENT_SECRET,
+        code: authorizationCode,
+        grant_type: 'authorization_code',
+        redirect_uri: 'https://f0rest-rank-api.glitch.me/auth/callback'
+      }
     });
 
     const accessToken = response.data.access_token;
-    const refreshToken = response.data.refresh_token;  // If you requested one.
-
-    // Now you can store these tokens securely and use the access token in your API calls.
+    const refreshToken = response.data.refresh_token;
+    
+    // Store tokens in tokenStore and DB
+    tokenStore.accessToken = accessToken;
+    tokenStore.refreshToken = refreshToken;
+    await saveTokensToDB(accessToken, refreshToken, tokenStore.tokenExpiry);
     
     res.send('Tokens received and stored.');
-} catch (error) {
+  } catch (error) {
     console.error('Error fetching tokens:', error);
     res.status(500).send('Error fetching tokens from Twitch.');
-}
+  }
 });
 
 // Load environment variables from .env file
 require('dotenv').config();
 
 // Access environment variables
-const CLIENT_ID = process.env.CLIENT_ID || 'Fallback_ID';
-const CLIENT_SECRET = process.env.CLIENT_SECRET || 'Fallback_Secret';
 const OAUTH_TOKEN = process.env.OAUTH_TOKEN || 'Fallback_Token';
 
 
