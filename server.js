@@ -129,15 +129,39 @@ const headers = {
 };
 
 async function isStreamerLive(streamerName) {
-  const accessToken = await getAccessToken();
-  const headers = {
+  try {
+    let accessToken = await getAccessToken();
+
+    if (!accessToken) {
+      throw new Error("Access token is not available.");
+    }
+
+    const headers = {
       'Client-ID': process.env.CLIENT_ID,
       'Authorization': `Bearer ${accessToken}`
-  };
+    };
 
-  const twitchResponse = await axios.get(`https://api.twitch.tv/helix/streams?user_login=${streamerName}`, { headers });
-  return twitchResponse.data.data && twitchResponse.data.data.length > 0;
+    const twitchResponse = await axios.get(`https://api.twitch.tv/helix/streams?user_login=${streamerName}`, { headers });
+
+    // Check for a 401 response (Unauthorized)
+    if (twitchResponse.status === 401) {
+      // Token is invalid or expired, refresh it
+      await refreshAccessToken();
+      accessToken = await getAccessToken();
+      headers.Authorization = `Bearer ${accessToken}`;
+
+      // Retry the request
+      const retryResponse = await axios.get(`https://api.twitch.tv/helix/streams?user_login=${streamerName}`, { headers });
+      return retryResponse.data.data && retryResponse.data.data.length > 0;
+    }
+
+    return twitchResponse.data.data && twitchResponse.data.data.length > 0;
+  } catch (error) {
+    console.error('Error checking if streamer is live:', error);
+    return false; // Handle the error appropriately
+  }
 }
+
 
 
 // This should be an object, not a boolean
@@ -166,6 +190,8 @@ async function checkStreamers() {
       setTimeout(checkStreamers, 4 * 60 * 1000);
   }
 }
+
+
 
 checkStreamers();  // Start the check when the server starts
 
