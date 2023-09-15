@@ -1,12 +1,10 @@
+require('dotenv').config();
 const express = require('express');
 const axios = require('axios');
 const app = express();
 const port = process.env.PORT || 3000;
 const sqlite3 = require('sqlite3').verbose();
 const db = new sqlite3.Database('./database.db');
-
-const CLIENT_ID = 'o14b8c390l35epzcfn9csyugmhrkzn'; // Replace with your actual client ID.
-const CLIENT_SECRET = 'di32vx8azyqxu9wpazaz0lkof023cn'; // Replace with your actual client secret.
 
 
 let tokenStore = {
@@ -19,10 +17,9 @@ db.serialize(() => {
   db.run("CREATE TABLE IF NOT EXISTS tokens (id INTEGER PRIMARY KEY, accessToken TEXT, refreshToken TEXT, tokenExpiry INTEGER)");
 });
 
-// Load environment variables from .env file
-require('dotenv').config();
-//const CLIENT_ID = process.env.CLIENT_ID || 'Fallback_ID';
-//const CLIENT_SECRET = process.env.CLIENT_SECRET || 'Fallback_Secret';
+
+const CLIENT_ID = process.env.CLIENT_ID || 'Fallback_ID';
+const CLIENT_SECRET = process.env.CLIENT_SECRET || 'Fallback_Secret';
 
 async function saveTokensToDB(accessToken, refreshToken, expiry) {
   return new Promise((resolve, reject) => {
@@ -67,15 +64,19 @@ async function refreshAccessToken() {
 async function getAccessToken() {
     try {
         const response = await axios.post('https://id.twitch.tv/oauth2/token', null, {
-            params: {
-                client_id: process.env.CLIENT_ID,
-                client_secret: process.env.CLIENT_SECRET,
-                grant_type: 'client_credentials',
-                scope: ''
-            }
-        });
-
-        return response.data.access_token;
+  params: {
+    client_id: process.env.CLIENT_ID,
+    client_secret: process.env.CLIENT_SECRET,
+    grant_type: 'client_credentials'
+  }
+});
+      
+        const response = await axios.post(`https://id.twitch.tv/oauth2/token?client_id=${CLIENT_ID}&client_secret=${CLIENT_SECRET}&grant_type=client_credentials&scope=`);
+        const { access_token, expires_in } = response.data;
+        const expiry = Date.now() + (expires_in * 1000);
+        tokenStore = { accessToken: access_token, tokenExpiry: expiry };
+        await saveTokensToDB(access_token, null, expiry);
+        return access_token;
     } catch (error) {
         console.error('Error getting access token:', error.response.data);
         return null;
@@ -83,10 +84,10 @@ async function getAccessToken() {
 }
 
 // Usage
-(async () => {
+async () => {
     const token = await getAccessToken();
     console.log('Access token:', token);
-})();
+};
 
 app.get('/auth/callback', async (req, res) => {
   const authorizationCode = req.query.code;
@@ -127,14 +128,14 @@ const OAUTH_TOKEN = process.env.OAUTH_TOKEN || 'Fallback_Token';
 
 async function isStreamerLive(streamerName) {
   try {
-    let accessToken = await getAccessToken();
+    let accessToken = tokenStore.accessToken || await getAccessToken();
 
     if (!accessToken) {
       throw new Error("Access token is not available.");
     }
 
     const headers = {
-      'Client-ID': process.env.CLIENT_ID,
+      'Client-ID': CLIENT_ID,
       'Authorization': `Bearer ${accessToken}`
     };
 
@@ -236,6 +237,9 @@ app.get('/getRank/:playerName', async (req, res) => {
     res.status(500).send('An error occurred while fetching data from the Steam API');
 }
 });
+
+
+console.log(axios.defaults);
 
 app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
