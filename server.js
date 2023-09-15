@@ -19,6 +19,32 @@ db.serialize(() => {
 });
 
 
+const tokenRequest = {
+  method: 'post',
+  url: 'https://authorization-server.com/token', // Replace with the actual token endpoint URL
+  headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+  data: new URLSearchParams({
+    grant_type: 'authorization_code',
+    code: 'your-authorization-code',
+    redirect_uri: 'your-redirect-uri',
+    client_id: 'your-client-id',
+    client_secret: 'your-client-secret',
+  }),
+};
+
+axios(tokenRequest)
+  .then(response => {
+    // Handle the response, which should include the access token and possibly a refresh token and expiration time.
+    console.log('Access Token:', response.data.access_token);
+    console.log('Refresh Token:', response.data.refresh_token);
+    console.log('Expires In:', response.data.expires_in);
+  })
+  .catch(error => {
+    // Handle any errors
+    console.error('Error exchanging authorization code for token:', error);
+  });
+
+
 async function saveTokensToDB(accessToken, refreshToken, expiry) {
   return new Promise((resolve, reject) => {
     // Use INSERT OR REPLACE based on a constant ID = 1
@@ -120,13 +146,14 @@ app.get('/auth/callback', async (req, res) => {
 }
 });
 
+// Load environment variables from .env file
+require('dotenv').config();
 
-const CLIENT_ID = process.env.CLIENT_ID || 'Fallback_ID'; // Provide a fallback or default value
-const OAUTH_TOKEN = process.env.OAUTH_TOKEN || 'Fallback_Token'; 
-const headers = {
-    'Client-ID': CLIENT_ID,
-    'Authorization': `Bearer ${OAUTH_TOKEN}`
-};
+// Access environment variables
+const CLIENT_ID = process.env.CLIENT_ID || 'Fallback_ID';
+const CLIENT_SECRET = process.env.CLIENT_SECRET || 'Fallback_Secret';
+const OAUTH_TOKEN = process.env.OAUTH_TOKEN || 'Fallback_Token';
+
 
 async function isStreamerLive(streamerName) {
   try {
