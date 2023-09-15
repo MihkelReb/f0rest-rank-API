@@ -2,14 +2,12 @@ const express = require('express');
 const axios = require('axios');
 const app = express();
 const port = process.env.PORT || 3000;
-
 const sqlite3 = require('sqlite3').verbose();
 const db = new sqlite3.Database('./database.db');
 
+const CLIENT_ID = 'o14b8c390l35epzcfn9csyugmhrkzn'; // Replace with your actual client ID.
+const CLIENT_SECRET = 'di32vx8azyqxu9wpazaz0lkof023cn'; // Replace with your actual client secret.
 
-// Use these constants consistently
-const CLIENT_ID = process.env.CLIENT_ID || 'Fallback_ID';
-const CLIENT_SECRET = process.env.CLIENT_SECRET || 'Fallback_Secret';
 
 let tokenStore = {
   accessToken: null,
@@ -17,41 +15,17 @@ let tokenStore = {
   tokenExpiry: null
 };
 
-// Initialize database with a table for tokens if it doesn't exist yet
 db.serialize(() => {
   db.run("CREATE TABLE IF NOT EXISTS tokens (id INTEGER PRIMARY KEY, accessToken TEXT, refreshToken TEXT, tokenExpiry INTEGER)");
 });
 
-
-const tokenRequest = {
-  method: 'post',
-  url: 'https://authorization-server.com/token', // Replace with the actual token endpoint URL
-  headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-  data: new URLSearchParams({
-    grant_type: 'authorization_code',
-    code: 'your-authorization-code',
-    redirect_uri: 'your-redirect-uri',
-    client_id: 'your-client-id',
-    client_secret: 'your-client-secret',
-  }),
-};
-
-axios(tokenRequest)
-  .then(response => {
-    // Handle the response, which should include the access token and possibly a refresh token and expiration time.
-    console.log('Access Token:', response.data.access_token);
-    console.log('Refresh Token:', response.data.refresh_token);
-    console.log('Expires In:', response.data.expires_in);
-  })
-  .catch(error => {
-    // Handle any errors
-    console.error('Error exchanging authorization code for token:', error);
-  });
-
+// Load environment variables from .env file
+require('dotenv').config();
+//const CLIENT_ID = process.env.CLIENT_ID || 'Fallback_ID';
+//const CLIENT_SECRET = process.env.CLIENT_SECRET || 'Fallback_Secret';
 
 async function saveTokensToDB(accessToken, refreshToken, expiry) {
   return new Promise((resolve, reject) => {
-    // Use INSERT OR REPLACE based on a constant ID = 1
     const stmt = db.prepare("INSERT OR REPLACE INTO tokens (id, accessToken, refreshToken, tokenExpiry) VALUES (1, ?, ?, ?)");
     stmt.run([accessToken, refreshToken, expiry], function(err) {
       if (err) return reject(err);
@@ -73,12 +47,12 @@ async function getTokensFromDB() {
 async function refreshAccessToken() {
   try {
     const response = await axios.post('https://id.twitch.tv/oauth2/token', null, {
-        params: {
-            client_id: CLIENT_ID,
-            client_secret: CLIENT_SECRET,
-            grant_type: 'refresh_token',
-            refresh_token: tokenStore.refreshToken
-        }
+      params: {
+        client_id: CLIENT_ID,
+        client_secret: CLIENT_SECRET,
+        grant_type: 'refresh_token',
+        refresh_token: tokenStore.refreshToken
+      }
     });
 
     const { access_token, refresh_token, expires_in } = response.data;
@@ -86,43 +60,33 @@ async function refreshAccessToken() {
     tokenStore = { accessToken: access_token, refreshToken: refresh_token, tokenExpiry: expiry };
     await saveTokensToDB(access_token, refresh_token, expiry);
   } catch (error) {
-      console.error('Error refreshing token:', error);
+    console.error('Error refreshing token:', error);
   }
 }
-
 
 async function getAccessToken() {
-  // If we have a cached token and it's not expired, use it
-  if (tokenStore.accessToken && Date.now() <= tokenStore.tokenExpiry) {
-      return tokenStore.accessToken;
-  }
-  try {
-    const tokenData = await getTokensFromDB();
+    try {
+        const response = await axios.post('https://id.twitch.tv/oauth2/token', null, {
+            params: {
+                client_id: process.env.CLIENT_ID,
+                client_secret: process.env.CLIENT_SECRET,
+                grant_type: 'client_credentials',
+                scope: ''
+            }
+        });
 
-    if (!tokenData) {
-      throw new Error("No tokens found in database.");
+        return response.data.access_token;
+    } catch (error) {
+        console.error('Error getting access token:', error.response.data);
+        return null;
     }
-
-    // Check if token is close to expiry and refresh if needed
-    if (Date.now() > tokenData.tokenExpiry - 5 * 60 * 1000) { // refresh 5 minutes before expiry
-      await refreshAccessToken();
-      const refreshedTokenData = await getTokensFromDB();
-
-      if (!refreshedTokenData) {
-        throw new Error("Failed to retrieve refreshed tokens from database.");
-      }
-
-      return refreshedTokenData.accessToken;
-    }
-
-    return tokenData.accessToken;
-  } catch (error) {
-    console.error("Error in getAccessToken:", error.message);
-    throw error; // You can propagate the error up if you want the calling function to handle it, or handle it here.
-  }
 }
 
-
+// Usage
+(async () => {
+    const token = await getAccessToken();
+    console.log('Access token:', token);
+})();
 
 app.get('/auth/callback', async (req, res) => {
   const authorizationCode = req.query.code;
@@ -142,13 +106,10 @@ app.get('/auth/callback', async (req, res) => {
       }
     });
 
-    const accessToken = response.data.access_token;
-    const refreshToken = response.data.refresh_token;
-    
-    // Store tokens in tokenStore and DB
-    tokenStore.accessToken = accessToken;
-    tokenStore.refreshToken = refreshToken;
-    await saveTokensToDB(accessToken, refreshToken, tokenStore.tokenExpiry);
+    const { access_token, refresh_token, expires_in } = response.data;
+    const expiry = Date.now() + (expires_in * 1000);
+    tokenStore = { accessToken: access_token, refreshToken: refresh_token, tokenExpiry: expiry };
+    await saveTokensToDB(access_token, refresh_token, expiry);
     
     res.send('Tokens received and stored.');
   } catch (error) {
@@ -179,28 +140,24 @@ async function isStreamerLive(streamerName) {
 
     const twitchResponse = await axios.get(`https://api.twitch.tv/helix/streams?user_login=${streamerName}`, { headers });
 
-    // Check for a 401 response (Unauthorized)
     if (twitchResponse.status === 401) {
-      // Token is invalid or expired, refresh it
       await refreshAccessToken();
       accessToken = await getAccessToken();
       headers.Authorization = `Bearer ${accessToken}`;
 
-      // Retry the request
       const retryResponse = await axios.get(`https://api.twitch.tv/helix/streams?user_login=${streamerName}`, { headers });
-      return retryResponse.data.data && retryResponse.data.data.length > 0;
+      if (!retryResponse.data.data) return false;
+      return retryResponse.data.data.length > 0;
     }
 
-    return twitchResponse.data.data && twitchResponse.data.data.length > 0;
+    if (!twitchResponse.data.data) return false;
+    return twitchResponse.data.data.length > 0;
   } catch (error) {
     console.error('Error checking if streamer is live:', error);
-    return false; // Handle the error appropriately
+    return false;
   }
 }
 
-
-
-// This should be an object, not a boolean
 let currentlyChecking = {
   'olofmeister': true,
   'f0rest': true
@@ -210,24 +167,21 @@ async function checkStreamers() {
   const streamers = ['olofmeister', 'f0rest'];
 
   for (const streamer of streamers) {
-      if (!currentlyChecking[streamer]) continue;  
-      
-      const live = await isStreamerLive(streamer);
+    if (!currentlyChecking[streamer]) continue;
 
-      if (live) {
-          await axios.get(`https://f0rest-rank-api.glitch.me/getRank/${streamer}`);
-      } else {
-          currentlyChecking[streamer] = false;
-      }
+    const live = await isStreamerLive(streamer);
+    if (live) {
+      await axios.get(`https://f0rest-rank-api.glitch.me/getRank/${streamer}`);
+    } else {
+      currentlyChecking[streamer] = false;
+    }
   }
 
   const shouldContinueChecking = Object.values(currentlyChecking).some(value => value);
   if (shouldContinueChecking) {
-      setTimeout(checkStreamers, 4 * 60 * 1000);
+    setTimeout(checkStreamers, 4 * 60 * 1000);
   }
 }
-
-
 
 checkStreamers();  // Start the check when the server starts
 
