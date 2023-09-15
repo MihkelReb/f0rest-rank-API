@@ -396,6 +396,33 @@ app.get('/getRank/:playerName', async (req, res) => {
   }
 });
 
+// Your token refresh test function
+async function testTokenRefresh() {
+  const MIN_TOKEN_EXPIRY_MS = 5 * 60 * 1000; // 5 minutes
+
+  // Ensure you have an initial access token
+  let accessToken = await getAccessToken();
+
+  // Check if the access token is about to expire or has expired
+  if (!accessToken || tokenStore.tokenExpiry - Date.now() < MIN_TOKEN_EXPIRY_MS) {
+    console.log('Refreshing token...');
+    await refreshAccessToken();
+    accessToken = tokenStore.accessToken;
+  }
+
+  // Now you can make API calls using the refreshed token
+  const streamerName = 'some_streamer';
+  const isLive = await isStreamerLive(streamerName);
+
+  if (isLive) {
+    console.log(`${streamerName} is live!`);
+  } else {
+    console.log(`${streamerName} is not live.`);
+  }
+}
+
+// Run the token refresh test
+testTokenRefresh();
 
 // Start the server
 app.listen(port, () => {
