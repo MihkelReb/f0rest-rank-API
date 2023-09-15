@@ -1,11 +1,13 @@
+// Import necessary libraries and modules
 require('dotenv').config();
 const express = require('express');
 const axios = require('axios');
+const sqlite3 = require('sqlite3').verbose();
 const app = express();
 const port = process.env.PORT || 3000;
-const sqlite3 = require('sqlite3').verbose();
-const db = new sqlite3.Database('./database.db');
 
+// Set up the database
+const db = new sqlite3.Database('./database.db');
 
 let tokenStore = {
   accessToken: null,
@@ -13,14 +15,17 @@ let tokenStore = {
   tokenExpiry: null
 };
 
+// Create table if it doesn't exist for tokens
 db.serialize(() => {
   db.run("CREATE TABLE IF NOT EXISTS tokens (id INTEGER PRIMARY KEY, accessToken TEXT, refreshToken TEXT, tokenExpiry INTEGER)");
 });
 
-
+// Access environment variables for authentication
 const CLIENT_ID = process.env.CLIENT_ID || 'Fallback_ID';
 const CLIENT_SECRET = process.env.CLIENT_SECRET || 'Fallback_Secret';
+const OAUTH_TOKEN = process.env.OAUTH_TOKEN || 'Fallback_Token';
 
+// Function to save tokens to the database
 async function saveTokensToDB(accessToken, refreshToken, expiry) {
   return new Promise((resolve, reject) => {
     const stmt = db.prepare("INSERT OR REPLACE INTO tokens (id, accessToken, refreshToken, tokenExpiry) VALUES (1, ?, ?, ?)");
@@ -32,6 +37,7 @@ async function saveTokensToDB(accessToken, refreshToken, expiry) {
   });
 }
 
+// Function to retrieve tokens from the database
 async function getTokensFromDB() {
   return new Promise((resolve, reject) => {
     db.get("SELECT accessToken, refreshToken, tokenExpiry FROM tokens WHERE id = 1", [], (err, row) => {
@@ -41,6 +47,7 @@ async function getTokensFromDB() {
   });
 }
 
+// Function to refresh the access token using a stored refresh token
 async function refreshAccessToken() {
   try {
     const response = await axios.post('https://id.twitch.tv/oauth2/token', null, {
@@ -61,17 +68,16 @@ async function refreshAccessToken() {
   }
 }
 
+// Function to get an access token using client credentials
 async function getAccessToken() {
     try {
         const response = await axios.post('https://id.twitch.tv/oauth2/token', null, {
-  params: {
-    client_id: process.env.CLIENT_ID,
-    client_secret: process.env.CLIENT_SECRET,
-    grant_type: 'client_credentials'
-  }
-});
-      
-        const response = await axios.post(`https://id.twitch.tv/oauth2/token?client_id=${CLIENT_ID}&client_secret=${CLIENT_SECRET}&grant_type=client_credentials&scope=`);
+            params: {
+                client_id: process.env.CLIENT_ID,
+                client_secret: process.env.CLIENT_SECRET,
+                grant_type: 'client_credentials'
+            }
+        });
         const { access_token, expires_in } = response.data;
         const expiry = Date.now() + (expires_in * 1000);
         tokenStore = { accessToken: access_token, tokenExpiry: expiry };
@@ -89,6 +95,7 @@ async () => {
     console.log('Access token:', token);
 };
 
+// Middleware for auth callback to store and update tokens
 app.get('/auth/callback', async (req, res) => {
   const authorizationCode = req.query.code;
 
@@ -122,10 +129,7 @@ app.get('/auth/callback', async (req, res) => {
 // Load environment variables from .env file
 require('dotenv').config();
 
-// Access environment variables
-const OAUTH_TOKEN = process.env.OAUTH_TOKEN || 'Fallback_Token';
-
-
+// Function to check if a streamer is currently live on Twitch
 async function isStreamerLive(streamerName) {
   try {
     let accessToken = tokenStore.accessToken || await getAccessToken();
@@ -159,11 +163,13 @@ async function isStreamerLive(streamerName) {
   }
 }
 
+// Track streamers we're currently checking the status for
 let currentlyChecking = {
   'olofmeister': true,
   'f0rest': true
 };
 
+// Function to periodically check if certain streamers are live
 async function checkStreamers() {
   const streamers = ['olofmeister', 'f0rest'];
 
@@ -184,8 +190,10 @@ async function checkStreamers() {
   }
 }
 
+// Kick off the streamer checking process when server starts
 checkStreamers();  // Start the check when the server starts
 
+// API endpoint to get a player's rank
 app.get('/getRank/:playerName', async (req, res) => {
   try {
       const playerName = req.params.playerName;
@@ -238,9 +246,7 @@ app.get('/getRank/:playerName', async (req, res) => {
 }
 });
 
-
-console.log(axios.defaults);
-
+// Start the server
 app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
 });
