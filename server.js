@@ -4,10 +4,14 @@ const app = express();
 const port = process.env.PORT || 3000;
 
 const sqlite3 = require('sqlite3').verbose();
+const db = new sqlite3.Database('./database.db');
 
-// Create a new database or open an existing one
-// Using .data directory for persistent storage on Glitch
-const db = new sqlite3.Database('./.data/database.db');
+// Define tokenStore at the top
+let tokenStore = {
+  accessToken: null,
+  refreshToken: null,
+  tokenExpiry: null
+};
 
 // Initialize database with a table for tokens if it doesn't exist yet
 db.serialize(() => {
