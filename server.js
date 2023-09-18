@@ -253,9 +253,6 @@ async function isStreamerLive(streamerName) {
     throw new Error("Access token is not available.");
   }
 
-  // Move the log statement here to ensure it's only executed once.
-  //console.log("Using token with expiry:", tokenStore.tokenExpiry);
-
   const headers = {
     'Client-ID': CLIENT_ID,
     'Authorization': `Bearer ${accessToken}`
