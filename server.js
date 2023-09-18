@@ -225,10 +225,6 @@ app.get('/auth/callback', async (req, res) => {
 });
 
 
-// Load environment variables from .env file
-require('dotenv').config();
-
-
 /**
  * Function to check if a streamer is currently live on Twitch
  * Asynchronously checks if a Twitch streamer is currently live.
@@ -236,6 +232,14 @@ require('dotenv').config();
  * @return {boolean} - Returns true if the streamer is live, false otherwise.
  */
 async function isStreamerLive(streamerName) {
+  let accessToken = tokenStore.accessToken || await getAccessToken();
+
+  if (!accessToken) {
+    console.error("Access token is not available.");
+    throw new Error("Access token is not available.");
+  }
+
+  console.log("Using token with expiry:", tokenStore.tokenExpiry);
   try {
     // Try to get the access token from the token store or fetch a new one.
     let accessToken = tokenStore.accessToken || await getAccessToken();
@@ -326,8 +330,9 @@ async function checkStreamers() {
     const live = await isStreamerLive(streamer);
     
     if (live) {
-      // If the streamer is live, fetch their rank.
-      await axios.get(`https://f0rest-rank-api.glitch.me/getRank/${streamer}`);
+      console.log(`${streamer} is live!`);
+      // Here, you can decide what to do next if the streamer is live.
+      // For instance, you can set up some kind of flag or call another function.
     } else {
       // If they're not live, set their status to not being checked.
       currentlyChecking[streamer] = false;
@@ -346,6 +351,45 @@ async function checkStreamers() {
 
 // Kick off the streamer checking process when server starts
 checkStreamers();  // Start the check when the server starts
+
+async function checkRank(streamer) {
+  console.log(`Checking rank for streamer: ${streamer}`);
+
+  try {
+    const steamResponse = await axios.get('https://api.steampowered.com/ICSGOServers_730/GetLeaderboardEntries/v1', {
+      params: {
+        format: 'json',
+        lbname: 'official_leaderboard_premier_season1',
+      },
+    });
+
+    if (steamResponse.status !== 200) {
+      console.error('Failed to fetch data from the Steam API');
+      return null;
+    }
+
+    const responseData = steamResponse.data;
+
+    if (!responseData || !responseData.result || !responseData.result.entries) {
+      console.error('Invalid response from the Steam API:', responseData);
+      return null;
+    }
+
+    const leaderboardEntries = responseData.result.entries;
+
+    for (const entry of leaderboardEntries) {
+      if (entry.name === streamer) {
+        return entry.rank;
+      }
+    }
+
+    console.log(`Player "${streamer}" not found in the leaderboard`);
+    return null;
+  } catch (error) {
+    console.error('Error fetching rank:', error);
+    return null;
+  }
+}
 
 
 // API endpoint to get a player's rank
