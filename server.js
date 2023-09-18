@@ -101,6 +101,7 @@ async function getTokensFromDB() {
  * If successful, updates the in-memory token store and saves the new tokens to the database.
  */
 async function refreshAccessToken() {
+  console.log("Attempting to refresh token...");
   try {
     // Make a POST request to the Twitch token endpoint to refresh the access token
     const response = await axios.post('https://id.twitch.tv/oauth2/token', null, {
@@ -126,7 +127,9 @@ async function refreshAccessToken() {
 
   } catch (error) {
     // Log any errors that might occur during the token refresh process
-    console.error('Error refreshing token:', error);
+    console.error('Error refreshing token:', error.response ? error.response.data : error);
+  } finally {
+    console.log("Token refreshed. New expiry:", tokenStore.tokenExpiry);
   }
 }
 
@@ -242,6 +245,8 @@ async function isStreamerLive(streamerName) {
       throw new Error("Access token is not available.");
     }
 
+    console.log(`Checking if ${streamerName} is live with access token:`, accessToken);
+
     // Prepare the headers for the Twitch API request.
     const headers = {
       'Client-ID': CLIENT_ID,
@@ -251,14 +256,19 @@ async function isStreamerLive(streamerName) {
     // Make a GET request to the Twitch Helix API to retrieve the stream information for the given streamer name.
     const twitchResponse = await axios.get(`https://api.twitch.tv/helix/streams?user_login=${streamerName}`, { headers });
 
+    console.log(`Received Twitch API response for ${streamerName}:`, twitchResponse.data);
+
     // If the response indicates an unauthorized request (status 401), refresh the access token and retry.
     if (twitchResponse.status === 401) {
+      console.log("Received 401 response. Refreshing access token and retrying...");
       await refreshAccessToken();
       accessToken = await getAccessToken();
       headers.Authorization = `Bearer ${accessToken}`;
 
       // Retry the GET request after refreshing the access token.
       const retryResponse = await axios.get(`https://api.twitch.tv/helix/streams?user_login=${streamerName}`, { headers });
+
+      console.log(`Retry response for ${streamerName}:`, retryResponse.data);
 
       // If there's no data in the retry response, the streamer is not live.
       if (!retryResponse.data.data) return false;
@@ -303,6 +313,7 @@ let currentlyChecking = {
  * The function also schedules itself to run periodically.
  */
 async function checkStreamers() {
+  console.log('checkStreamers function called.');
   // Define a list of streamers to check.
   const streamers = ['olofmeister', 'f0rest'];
 
@@ -340,6 +351,7 @@ checkStreamers();  // Start the check when the server starts
 // API endpoint to get a player's rank
 // Express route handler for fetching the rank of a specified player.
 app.get('/getRank/:playerName', async (req, res) => {
+  console.log(`getRank API called for player: ${req.params.playerName}`);
   try {
     // Extract the player's name from the request parameters.
     const playerName = req.params.playerName;
@@ -403,11 +415,14 @@ async function testTokenRefresh() {
   // Ensure you have an initial access token
   let accessToken = await getAccessToken();
 
+  console.log('Initial access token for token refresh test:', accessToken);
+
   // Check if the access token is about to expire or has expired
   if (!accessToken || tokenStore.tokenExpiry - Date.now() < MIN_TOKEN_EXPIRY_MS) {
     console.log('Refreshing token...');
     await refreshAccessToken();
     accessToken = tokenStore.accessToken;
+    console.log('New access token after refresh:', accessToken);
   }
 
   // Now you can make API calls using the refreshed token
