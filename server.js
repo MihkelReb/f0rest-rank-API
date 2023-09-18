@@ -182,45 +182,41 @@ async function getAccessToken() {
  * It takes the authorization code received and exchanges it for an access and refresh token.
  */
 app.get('/auth/callback', async (req, res) => {
-  // Extract the authorization code from the query parameters.
-  const authorizationCode = req.query.code;
-
-  // Check if the authorization code is present in the request.
-  if (!authorizationCode) {
-    // If not provided, respond with a 400 Bad Request status.
-    return res.status(400).send('No authorization code provided');
-  }
-
   try {
-    // Use the received authorization code to fetch the access and refresh tokens from Twitch.
+    // 1. Extract the authorization code from the request
+    const authCode = req.query.code;
+
+    if (!authCode) {
+      return res.status(400).send('Authorization code is missing');
+    }
+
+    // 2. Exchange the authorization code for an access token
     const response = await axios.post('https://id.twitch.tv/oauth2/token', null, {
       params: {
-        client_id: CLIENT_ID, // Your Twitch client ID.
-        client_secret: CLIENT_SECRET, // Your Twitch client secret.
-        code: authorizationCode, // The authorization code received from the request.
-        grant_type: 'authorization_code', // Specifies the OAuth 2.0 flow being used.
-        redirect_uri: 'https://f0rest-rank-api.glitch.me/auth/callback' // The URI where Twitch will redirect the user after authentication.
+        client_id: process.env.TWITCH_CLIENT_ID,
+        client_secret: process.env.TWITCH_CLIENT_SECRET,
+        code: authCode,
+        grant_type: 'authorization_code',
+        redirect_uri: 'YOUR_CALLBACK_URL' // This should be the exact URL you registered with Twitch (or another provider)
       }
     });
 
-    // Destructure the access token, refresh token, and its expiry time from the response.
-    const { access_token, refresh_token, expires_in } = response.data;
+    // Store the access token securely (for instance, in an in-memory store, a database, or encrypted in a cookie)
+    const accessToken = response.data.access_token;
+    tokenStore.accessToken = accessToken; // assuming you have a tokenStore object to store tokens
 
-    // Calculate the actual expiration timestamp in milliseconds.
-    const expiry = Date.now() + (expires_in * 1000);
+    // Optionally, you might also receive a refresh token
+    const refreshToken = response.data.refresh_token;
+    tokenStore.refreshToken = refreshToken;
 
-    // Update the in-memory token store with the newly received tokens and expiry time.
-    tokenStore = { accessToken: access_token, refreshToken: refresh_token, tokenExpiry: expiry };
+    // 3. Redirect the user to a secure area of your application, or notify them of successful authorization
+    res.redirect('/dashboard');
 
-    // Persistently save the new tokens and their expiration time in the database.
-    await saveTokensToDB(access_token, refresh_token, expiry);
-    
-    // Respond to the client indicating the tokens have been received and stored.
-    res.send('Tokens received and stored.');
   } catch (error) {
-    // If an error occurs during the token exchange process, log it and respond with a 500 Internal Server Error status.
-    console.error('Error fetching tokens:', error);
-    res.status(500).send('Error fetching tokens from Twitch.');
+    console.error('Error during the OAuth callback:', error);
+    
+    // Handle the error based on its nature - here, we're just sending a general error message
+    res.status(500).send('An error occurred during authentication');
   }
 });
 
@@ -240,58 +236,29 @@ async function isStreamerLive(streamerName) {
   }
 
   console.log("Using token with expiry:", tokenStore.tokenExpiry);
+
+  const headers = {
+    'Client-ID': CLIENT_ID,
+    'Authorization': `Bearer ${accessToken}`
+  };
+
   try {
-    // Try to get the access token from the token store or fetch a new one.
-    let accessToken = tokenStore.accessToken || await getAccessToken();
-
-    // If there's no access token, throw an error.
-    if (!accessToken) {
-      throw new Error("Access token is not available.");
-    }
-
-    console.log(`Checking if ${streamerName} is live with access token:`, accessToken);
-
-    // Prepare the headers for the Twitch API request.
-    const headers = {
-      'Client-ID': CLIENT_ID,
-      'Authorization': `Bearer ${accessToken}`
-    };
-
-    // Make a GET request to the Twitch Helix API to retrieve the stream information for the given streamer name.
     const twitchResponse = await axios.get(`https://api.twitch.tv/helix/streams?user_login=${streamerName}`, { headers });
-
-    console.log(`Received Twitch API response for ${streamerName}:`, twitchResponse.data);
-
-    // If the response indicates an unauthorized request (status 401), refresh the access token and retry.
+    
     if (twitchResponse.status === 401) {
       console.log("Received 401 response. Refreshing access token and retrying...");
       await refreshAccessToken();
-      accessToken = await getAccessToken();
+      accessToken = tokenStore.accessToken || await getAccessToken();
       headers.Authorization = `Bearer ${accessToken}`;
 
       // Retry the GET request after refreshing the access token.
-      const retryResponse = await axios.get(`https://api.twitch.tv/helix/streams?user_login=${streamerName}`, { headers });
-
-      console.log(`Retry response for ${streamerName}:`, retryResponse.data);
-
-      // If there's no data in the retry response, the streamer is not live.
-      if (!retryResponse.data.data) return false;
-
-      // Check if there's any live stream data for the streamer. If so, they are live.
-      return retryResponse.data.data.length > 0;
+      const { data: retryData } = await axios.get(`https://api.twitch.tv/helix/streams?user_login=${streamerName}`, { headers });
+      return retryData.data && retryData.data.length > 0;
     }
-
-    // If there's no data in the initial response, the streamer is not live.
-    if (!twitchResponse.data.data) return false;
-
-    // Check if there's any live stream data for the streamer in the initial response. If so, they are live.
-    return twitchResponse.data.data.length > 0;
-
+    const { data } = twitchResponse;
+    return data.data && data.data.length > 0;
   } catch (error) {
-    // Log any errors encountered during the process.
-    console.error('Error checking if streamer is live:', error);
-
-    // If an error occurs, assume the streamer is not live.
+    console.error("Error checking streamer's live status:", error);
     return false;
   }
 }
@@ -318,6 +285,7 @@ let currentlyChecking = {
  */
 async function checkStreamers() {
   console.log('checkStreamers function called.');
+
   // Define a list of streamers to check.
   const streamers = ['olofmeister', 'f0rest'];
 
@@ -332,9 +300,9 @@ async function checkStreamers() {
     if (live) {
       console.log(`${streamer} is live!`);
       // Here, you can decide what to do next if the streamer is live.
-      // For instance, you can set up some kind of flag or call another function.
     } else {
-      // If they're not live, set their status to not being checked.
+      // If they're not live, log and set their status to not being checked.
+      console.log(`${streamer} is not live.`);
       currentlyChecking[streamer] = false;
     }
   }
@@ -470,7 +438,7 @@ async function testTokenRefresh() {
   }
 
   // Now you can make API calls using the refreshed token
-  const streamerName = 'some_streamer';
+  const streamerName = 'some_streamer';  // You can change 'some_streamer' to the desired streamer's name.
   const isLive = await isStreamerLive(streamerName);
 
   if (isLive) {
